@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zero Inbox Engine: Day One Stable</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <div id="app">
+    <header>
+      <h1>Zero Inbox Engine</h1>
+    </header>
+
+    <main class="container">
+      <section id="configCard" class="config-card">
+        <button id="pickBtn" class="btn btn-secondary" onclick="triggerPick()">Pick MBOX File</button>
+        <p id="selectionStatus" class="status-msg hidden" style="color: #00ffaa; margin-top: 10px;">✅ File Selected.
+          Ready to Scan.</p>
+        <input type="hidden" id="mboxPath">
+        <button id="runBtn" class="btn btn-primary hidden" style="margin-top: 15px;" onclick="triggerRun()">Start
+          Full-Scan</button>
+      </section>
+
+      <div id="resultsView" class="hidden">
+        <div class="minimal-tabs">
+          <button class="minimal-tab-btn active" onclick="switchTab('dashboard', this)">Leaderboard</button>
+          <button class="minimal-tab-btn" onclick="switchTab('infographics', this)">Infographics</button>
+        </div>
+
+        <section id="tab-dashboard" class="tab-content active" style="margin-top: 20px;">
+          <div id="scanSummary" class="scan-summary-bar"></div>
+          <div class="sender-list-card">
+            <div id="senderList" class="sender-table"></div>
+            <div class="pager-footer" style="padding: 20px; text-align: center; border-top: 1px solid #333;">
+              <button id="prevBtn" class="pager-btn"
+                style="padding: 8px 20px; background: #222; border: 1px solid #444; color: #fff; cursor: pointer;"
+                onclick="pagerNav(-1)">← Prev</button>
+              <span id="pageInfo" style="margin: 0 20px; color: #888;">Page 1</span>
+              <button id="nextBtn" class="pager-btn"
+                style="padding: 8px 20px; background: #222; border: 1px solid #444; color: #fff; cursor: pointer;"
+                onclick="pagerNav(1)">Next →</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-infographics" class="tab-content hidden" style="margin-top: 20px;">
+          <div class="charts-grid-vertical" style="display: grid; gap: 30px;">
+            <div class="chart-card" style="background: #111; padding: 20px; border-radius: 8px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 0.9rem; color: #888;">Noise-Makers</h3>
+              <canvas id="senderChart"></canvas>
+            </div>
+            <div class="chart-card" style="background: #111; padding: 20px; border-radius: 8px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 0.9rem; color: #888;">Email Growth History</h3>
+              <canvas id="timeChart"></canvas>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="loader" class="loader hidden">
+      <div class="loader-content" style="text-align: center; padding: 50px;">
+        <div class="spinner"></div>
+        <h2 style="color: #00ccff;">Analyzing Forensics...</h2>
+        <p id="progressStatus" style="color: #888;">Wiping database and starting scan...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    console.log("🚀 Zero Inbox Engine: Stability Restoration Initialized.");
+
+    let allSenders = [];
+    let currentPage = 1;
+    const pageSize = 50;
+    let timeChartIn = null;
+    let senderChartIn = null;
+
+    // 1. Correct API Pick Logic
+    async function triggerPick() {
+      console.log("🖱️ Pick Button Clicked");
+      try {
+        const response = await fetch('/api/select-file');
+        const data = await response.json();
+
+        if (data && data.path) {
+          console.log("📁 MBOX Selected. Ready:", data.path);
+          document.getElementById('mboxPath').value = data.path;
+          document.getElementById('selectionStatus').classList.remove('hidden');
+          document.getElementById('runBtn').classList.remove('hidden');
+          document.getElementById('pickBtn').innerText = "Change Selection";
+          document.getElementById('appStatus').innerText = "Ready to analyze.";
+        } else {
+          console.log("Selection cancelled");
+        }
+      } catch (err) {
+        console.error("Error picking file:", err);
+      }
+    }
+
+    // 2. Correct API Run Logic
+    async function triggerRun() {
+      const path = document.getElementById('mboxPath').value;
+      console.log("🚀 Starting Engive Analysis for Path:", path);
+      document.getElementById('loader').classList.remove('hidden');
+      document.getElementById('configCard').classList.add('hidden');
+
+      try {
+        // Trigger backend processing
+        await fetch(`/api/process?path=${encodeURIComponent(path)}`);
+
+        // Listen to progress updates
+        const evtSource = new EventSource('/api/progress-events');
+        evtSource.onmessage = function (event) {
+          const status = JSON.parse(event.data);
+          if (status.progress === 100) {
+            evtSource.close();
+            smartSync(); // Now sync the data
+          }
+        };
+      } catch (err) {
+        console.error("Run error", err);
+      }
+    }
+
+    // 2. STABLE SYNC: Smart-Poll from /data/analytics.json
+    async function smartSync() {
+      try {
+        const response = await fetch('./data/analytics.json?v=' + Date.now());
+        if (!response.ok) throw new Error("Processing...");
+
+        const data = await response.json();
+        allSenders = data.senders;
+
+        renderSummary(data);
+        renderTable();
+        renderCharts(data);
+
+        document.getElementById('loader').classList.add('hidden');
+        document.getElementById('configCard').classList.add('hidden');
+        document.getElementById('resultsView').classList.remove('hidden');
+      } catch (err) {
+        setTimeout(smartSync, 3500);
+      }
+    }
+
+    function renderSummary(data) {
+      document.getElementById('scanSummary').innerHTML = `
+        <div class="stat-item"><span class="stat-value">${data.total_emails.toLocaleString()}</span><span class="stat-label">Total Emails</span></div>
+        <div class="stat-item"><span class="stat-value">${data.total_senders.toLocaleString()}</span><span class="stat-label">Unique Senders</span></div>
+      `;
+    }
+
+    function renderTable() {
+      const start = (currentPage - 1) * pageSize;
+      const end = start + pageSize;
+      const pData = allSenders.slice(start, end);
+      const totalPages = Math.ceil(allSenders.length / pageSize);
+
+      const list = document.getElementById('senderList');
+      list.innerHTML = pData.map(s => `
+        <div class="sender-row" style="display: grid; grid-template-columns: 1fr 100px 100px; padding: 15px; border-bottom: 1px solid #222;">
+          <div class="sender-addr" style="color: #00ccff; cursor: pointer;">${s.address}</div>
+          <div style="color: #888;">${s.count} emails</div>
+          <div style="color: #888; text-align: right;">${s.size_mb} MB</div>
+        </div>
+      `).join('');
+
+      document.getElementById('pageInfo').innerText = "Page " + currentPage + " of " + totalPages;
+    }
+
+    function renderCharts(data) {
+      if (timeChartIn) timeChartIn.destroy();
+      if (senderChartIn) senderChartIn.destroy();
+
+      const top10 = data.senders.slice(0, 10);
+
+      senderChartIn = new Chart(document.getElementById('senderChart'), {
+        type: 'bar',
+        data: {
+          labels: top10.map(s => s.address.split('@')[0]),
+          datasets: [{ label: 'Volume', data: top10.map(s => s.count), backgroundColor: '#00ccff' }]
+        },
+        options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } } }
+      });
+
+      timeChartIn = new Chart(document.getElementById('timeChart'), {
+        type: 'bar',
+        data: {
+          labels: data.years,
+          datasets: [{ label: 'Growth', data: data.counts, backgroundColor: '#00ffaa' }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } } }
+      });
+    }
+
+    function switchTab(id, b) {
+      document.querySelectorAll('.minimal-tab-btn').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(x => x.classList.add('hidden'));
+      b.classList.add('active');
+      document.getElementById('tab-' + id).classList.remove('hidden');
+    }
+
+    function pagerNav(dir) {
+      const totalPages = Math.ceil(allSenders.length / pageSize);
+      if (dir === -1 && currentPage > 1) currentPage--;
+      if (dir === 1 && currentPage < totalPages) currentPage++;
+      renderTable();
+    }
+  </script>
+</body>
+
+</html>
